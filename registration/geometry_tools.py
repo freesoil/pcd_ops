@@ -1,9 +1,9 @@
-
 import numpy as np
 import copy
 import open3d as o3d
 from sklearn.neighbors import NearestNeighbors
 from tqdm import tqdm
+from typing import List
 
 
 def compute_avg_distance(in_pcd):
@@ -563,7 +563,7 @@ def registration_multiple_icp_fine(pcd_list, voxel_size):
 
 def compute_confidence(
     merged_pcd: o3d.geometry.PointCloud,
-    list_of_pcds: list[o3d.geometry.PointCloud],
+    list_of_pcds: List[o3d.geometry.PointCloud],
     radius: float = 0.02,
     alpha: float = 0.5  # balance weight between normal and distance
 ) -> np.ndarray:

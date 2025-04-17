@@ -28,9 +28,11 @@ if __name__ == '__main__':
 
     # Set the folder name within data/input_data. This name will be used to export the results in data/results_data/<name>
     
-    # test_name = "hair_dryer"
-    test_name = "hair_dryer_part_1"
-    # test_name = "20250403_yard_10fps_vslam"
+    #test_name = "hair_dryer"
+    #test_name = "hair_dryer_part_1"
+    test_name = "20250403_yard_10fps_vslam_full"
+    test_name = "gondola2"
+    test_name = "gondola_move_marker"
 
     # Set registration options
     fitness_threshold = 0.7 # 0.7 for objects ith high overlap like the dryer. 0.4 for large scenes with low overlap between sections.
@@ -62,11 +64,14 @@ if __name__ == '__main__':
     voxel_size_2 = avg_distance*1.5
     print("size1: {}, size2 {}".format(voxel_size_1,voxel_size_2))
 
+    new_pcds = []
     for i in range(len(pcd_list)):
         pcd = pcd_list[i]
         labels = np.array(pcd.cluster_dbscan(eps=avg_distance*25.0, min_points=10, print_progress=True))
         largest_label = labels[labels >= 0].max(axis=0, initial=0)
         counts = np.bincount(labels[labels >= 0])
+        if len(counts) == 0:
+            continue
         largest_label = np.argmax(counts)
         indices = np.where(labels == largest_label)[0]
         pcd = pcd.select_by_index(indices)
@@ -74,7 +79,9 @@ if __name__ == '__main__':
             pcd.estimate_normals()
             pcd.orient_normals_consistent_tangent_plane(k=50)
             pcd.normalize_normals()
-        pcd_list[i] = pcd
+        new_pcds.append(pcd)
+
+    pcd_list = new_pcds
         
 
     
