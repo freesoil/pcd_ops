@@ -212,14 +212,58 @@ def load_and_visualize_ply_folder(folder_path, start_frame, end_frame):
     vis.run()
     vis.destroy_window()
 
+def load_and_visualize_single_ply(file_path):
+    """Load and visualize a single PLY file."""
+    global pcd_list
+    
+    if not os.path.exists(file_path):
+        print(f"Error: File {file_path} does not exist.")
+        return
+        
+    if not file_path.endswith(".ply"):
+        print(f"Error: {file_path} is not a PLY file.")
+        return
+        
+    try:
+        pcd = o3d.io.read_point_cloud(file_path)
+        pcd_list.append(pcd)
+        print(f"Loaded point cloud from file: {file_path}")
+        
+        vis = o3d.visualization.VisualizerWithKeyCallback()
+        vis.create_window(window_name="PLY Visualizer", width=800, height=600)
+        vis.add_geometry(pcd)
+        
+        print("Hotkeys:")
+        print("  B: Toggle background (light/dark)")
+        print("  S: Toggle separation of point clouds")
+        print("  C: Toggle unique coloring for each point cloud")
+        print("  M: Toggle mesh view for point clouds")
+        
+        vis.register_key_callback(ord("B"), toggle_background)
+        vis.register_key_callback(ord("S"), toggle_separation)
+        vis.register_key_callback(ord("C"), toggle_coloring)
+        vis.register_key_callback(ord("M"), toggle_mesh)
+        
+        vis.run()
+        vis.destroy_window()
+    except Exception as e:
+        print(f"Error loading point cloud: {e}")
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Load and visualize PLY point clouds from a folder with hotkeys and frame selection based on file suffix."
+        description="Load and visualize PLY point clouds from a folder or individual file."
     )
-    parser.add_argument("folder", type=str, help="Path to folder containing .ply files")
-    parser.add_argument("--start", type=int, default=0, help="Start frame id (inclusive)")
-    parser.add_argument("--end", type=int, default=None, help="End frame id (inclusive)")
+    parser.add_argument("path", type=str, help="Path to folder containing .ply files or a single .ply file")
+    parser.add_argument("--start", type=int, default=0, help="Start frame id (inclusive, for folder mode only)")
+    parser.add_argument("--end", type=int, default=None, help="End frame id (inclusive, for folder mode only)")
     
     args = parser.parse_args()
-    load_and_visualize_ply_folder(args.folder, args.start, args.end)
+    
+    # Check if the path is a file or directory
+    if os.path.isfile(args.path):
+        load_and_visualize_single_ply(args.path)
+    elif os.path.isdir(args.path):
+        load_and_visualize_ply_folder(args.path, args.start, args.end)
+    else:
+        print(f"Error: {args.path} is not a valid file or directory")
 
