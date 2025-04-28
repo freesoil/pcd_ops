@@ -33,14 +33,28 @@ pip install -r requirements.txt
 
 ## Running
 
-To run the registration pipeline, execute the script demo.py.
+To run the full processing pipeline that at this moment consists of registration and outlier removal subpipelines, you can execute the process as follows:
 
 ```bash
-python demo.py
+python pcp_app.py data/input_data/hair_dryer_part_1
 ```
 
-In this script you can modify the input folder and some parameters. The combined (registered) point cloud and the isolated registered point clouds will be exported to the folder data/results/<name>. Notice that just the point clouds that presented an acceptable registration will be considered.
+This will run the full pipeline using as input the PLY files found in data/input_data/hair_dryer_part_1, and exporting the results to data/results/hair_dryer_part_1, where you will find subfolders containing the results of each subpipeline. For the registration, the combined (registered) point cloud and the isolated registered point clouds will be exported. Notice that just the point clouds that presented an acceptable registration will be considered. For the outlier removal, the results of each step of the algorithm will be exported under the following names: clean_1_overlap.ply, clean_2_visibility.ply, and result.ply.
 
-The proposed approach relies on certain assumptions about the input data: each point cloud should contain color information and be part of a sequential acquisition, ensuring substantial overlap with preceding scans. This sequence order is represented by the corresponding positions of an input list of point clouds. 
+The proposed approach relies on certain assumptions about the input data: each point cloud should contain color information and be part of a sequential acquisition, ensuring substantial overlap with preceding scans. This sequence order is represented by the corresponding positions of an input list of point clouds (actually sorted by their filenames). 
 
+To export the results to a custom folder you can use the parameter -o as follows:
 
+```bash
+python pcp_app.py data/input_data/hair_dryer_part_1 -o data/results/custom_folder_for_hair_dryer_part_1
+```
+
+where the results will be exported to data/results/custom_folder_for_hair_dryer_part_1.
+
+If you want to use custom parameters, you can set them as follows:
+
+```bash
+python pcp_app.py data/input_data/20250403_yard_10fps_vslam --param_registration_fitness_threshold 0.4 --param_registration_use_simple_coarse 1 --param_outlier_removal_use_per_point_cloud_checking 0 --param_outlier_removal_use_visibility_confidence 0
+```
+
+The description of the full parameter list can be obtained by using -h or from the technical report.
