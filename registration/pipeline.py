@@ -174,6 +174,7 @@ class ProcessingPipeline():
 
         result = copy.deepcopy(clean_2_visibility)
         result.remove_statistical_outlier(nb_neighbors=20, std_ratio=2.0)
+        result, ind = result.remove_radius_outlier(nb_points=5, radius=processing_data.outlier_removal_radius)
 
         processing_data.outlier_removal_combined = merged_pcd
         processing_data.outlier_removal_clean_1_overlap = clean_1_overlap
