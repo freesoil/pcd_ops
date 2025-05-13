@@ -71,7 +71,6 @@ def toggle_separation(vis):
             vis.update_geometry(pcd)
         separated = False
         print("Point clouds recombined.")
-    vis.poll_events()
     vis.update_renderer()
     return False
 
@@ -109,35 +108,49 @@ def toggle_coloring(vis):
             vis.update_geometry(pcd)
         colored = False
         print("Point clouds reverted to original colors.")
-    vis.poll_events()
     vis.update_renderer()
     return False
 
 def toggle_mesh(vis):
     """
     Toggle mesh view.
-    When enabled, a mesh is computed for each point cloud, replacing the original point clouds.
+    When enabled, shows the pre-loaded meshes instead of point clouds.
     Toggling back removes the meshes and restores the point clouds.
     """
     global meshed, pcd_list, mesh_list
+    
+    # Get render options
+    render_option = vis.get_render_option()
+    
     if not meshed:
-        mesh_list = []
+        # Hide point clouds, show meshes
         for pcd in pcd_list:
-            mesh = compute_mesh_from_pcd(pcd)
-            if mesh is not None:
-                mesh_list.append(mesh)
-                vis.add_geometry(mesh)
-                vis.remove_geometry(pcd, reset_bounding_box=False)
+            vis.remove_geometry(pcd, reset_bounding_box=False)
+        for mesh in mesh_list:
+            vis.add_geometry(mesh)
+        
+        # Set mesh-specific render options
+        render_option.mesh_show_back_face = True
+        render_option.background_color = np.asarray([0.5, 0.5, 0.5])  # Gray background
+        
         meshed = True
         print("Mesh view enabled. (Press 'M' to toggle back to point clouds.)")
     else:
+        # Hide meshes, show point clouds
         for mesh in mesh_list:
             vis.remove_geometry(mesh, reset_bounding_box=False)
         for pcd in pcd_list:
             vis.add_geometry(pcd)
+            
+        # Reset render options for point clouds
+        if background_dark:
+            render_option.background_color = np.asarray([0, 0, 0])
+        else:
+            render_option.background_color = np.asarray([1, 1, 1])
+        
         meshed = False
         print("Mesh view disabled. (Point clouds restored.)")
-    vis.poll_events()
+    
     vis.update_renderer()
     return False
 
@@ -155,8 +168,61 @@ def extract_frame_id(filename):
     else:
         return None
 
+def load_and_visualize_single_ply(file_path):
+    """Load and visualize a single PLY file."""
+    global pcd_list, mesh_list
+    
+    if not os.path.exists(file_path):
+        print(f"Error: File {file_path} does not exist.")
+        return
+        
+    if not file_path.endswith(".ply"):
+        print(f"Error: {file_path} is not a PLY file.")
+        return
+        
+    try:
+        # Load as point cloud
+        pcd = o3d.io.read_point_cloud(file_path)
+        pcd_list.append(pcd)
+        
+        # Load as mesh
+        mesh = o3d.io.read_triangle_mesh(file_path)
+        
+        # Ensure the mesh has vertex colors
+        if not mesh.has_vertex_colors():
+            print("Mesh has no vertex colors, applying random colors")
+            vertices = np.asarray(mesh.vertices)
+            colors = np.random.uniform(0, 1, size=(len(vertices), 3))
+            mesh.vertex_colors = o3d.utility.Vector3dVector(colors)
+        
+        # Compute vertex normals for better visualization
+        mesh.compute_vertex_normals()
+        mesh_list.append(mesh)
+        
+        print(f"Loaded point cloud and mesh from file: {file_path}")
+        
+        vis = o3d.visualization.VisualizerWithKeyCallback()
+        vis.create_window(window_name="PLY Visualizer", width=800, height=600)
+        vis.add_geometry(pcd)
+        
+        print("Hotkeys:")
+        print("  B: Toggle background (light/dark)")
+        print("  S: Toggle separation of point clouds")
+        print("  C: Toggle unique coloring for each point cloud")
+        print("  M: Toggle mesh view for point clouds")
+        
+        vis.register_key_callback(ord("B"), toggle_background)
+        vis.register_key_callback(ord("S"), toggle_separation)
+        vis.register_key_callback(ord("C"), toggle_coloring)
+        vis.register_key_callback(ord("M"), toggle_mesh)
+        
+        vis.run()
+        vis.destroy_window()
+    except Exception as e:
+        print(f"Error loading file: {e}")
+
 def load_and_visualize_ply_folder(folder_path, start_frame, end_frame):
-    global pcd_list
+    global pcd_list, mesh_list
     # Get all .ply files in the folder
     all_files = [f for f in os.listdir(folder_path) if f.endswith(".ply")]
     
@@ -184,11 +250,28 @@ def load_and_visualize_ply_folder(folder_path, start_frame, end_frame):
         print("No PLY files found in the specified frame range.")
         return
 
-    # Load point clouds from the filtered files
+    # Load point clouds and meshes from the filtered files
     for frame_id, file in filtered_pairs:
         full_path = os.path.join(folder_path, file)
+        
+        # Load as point cloud
         pcd = o3d.io.read_point_cloud(full_path)
         pcd_list.append(pcd)
+        
+        # Load as mesh
+        mesh = o3d.io.read_triangle_mesh(full_path)
+        
+        # Ensure the mesh has vertex colors
+        if not mesh.has_vertex_colors():
+            print(f"Mesh for frame {frame_id} has no vertex colors, applying random colors")
+            vertices = np.asarray(mesh.vertices)
+            colors = np.random.uniform(0, 1, size=(len(vertices), 3))
+            mesh.vertex_colors = o3d.utility.Vector3dVector(colors)
+        
+        # Compute vertex normals for better visualization
+        mesh.compute_vertex_normals()
+        mesh_list.append(mesh)
+        
         print(f"Loaded frame {frame_id} from file: {file}")
 
     vis = o3d.visualization.VisualizerWithKeyCallback()
@@ -211,43 +294,6 @@ def load_and_visualize_ply_folder(folder_path, start_frame, end_frame):
 
     vis.run()
     vis.destroy_window()
-
-def load_and_visualize_single_ply(file_path):
-    """Load and visualize a single PLY file."""
-    global pcd_list
-    
-    if not os.path.exists(file_path):
-        print(f"Error: File {file_path} does not exist.")
-        return
-        
-    if not file_path.endswith(".ply"):
-        print(f"Error: {file_path} is not a PLY file.")
-        return
-        
-    try:
-        pcd = o3d.io.read_point_cloud(file_path)
-        pcd_list.append(pcd)
-        print(f"Loaded point cloud from file: {file_path}")
-        
-        vis = o3d.visualization.VisualizerWithKeyCallback()
-        vis.create_window(window_name="PLY Visualizer", width=800, height=600)
-        vis.add_geometry(pcd)
-        
-        print("Hotkeys:")
-        print("  B: Toggle background (light/dark)")
-        print("  S: Toggle separation of point clouds")
-        print("  C: Toggle unique coloring for each point cloud")
-        print("  M: Toggle mesh view for point clouds")
-        
-        vis.register_key_callback(ord("B"), toggle_background)
-        vis.register_key_callback(ord("S"), toggle_separation)
-        vis.register_key_callback(ord("C"), toggle_coloring)
-        vis.register_key_callback(ord("M"), toggle_mesh)
-        
-        vis.run()
-        vis.destroy_window()
-    except Exception as e:
-        print(f"Error loading point cloud: {e}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
