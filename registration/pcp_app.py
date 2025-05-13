@@ -21,6 +21,8 @@ if __name__ == '__main__':
                          type=int, default=1, help="Use point cloud-based checking for outlier removal (default: 1)")
     parser.add_argument("-param_outlier_removal_use_visibility_confidence", "--param_outlier_removal_use_visibility_confidence",
                          type=int, default=1, help="Use visibility confidence for outlier removal (default: 1)")
+    parser.add_argument("-param_completion_envelope_iterations", "--param_completion_envelope_iterations",
+                         type=int, default=20, help="Number of envelope iterations for shape completion (default: 30)")
     parser.add_argument("-param_export_intermediate_results", "--param_export_intermediate_results",
                          type=int, default=1, help="Export intermediate results (default: 1)")
 
@@ -35,6 +37,7 @@ if __name__ == '__main__':
     print(f"  param_registration_use_simple_coarse                      : {args.param_registration_use_simple_coarse}")
     print(f"  param_outlier_removal_use_per_point_cloud_checking        : {args.param_outlier_removal_use_per_point_cloud_checking}")
     print(f"  param_outlier_removal_use_visibility_confidence           : {args.param_outlier_removal_use_visibility_confidence}")
+    print(f"  param_completion_envelope_iterations                      : {args.param_completion_envelope_iterations}")
     print(f"  param_export_intermediate_results                         : {args.param_export_intermediate_results}")
     print("-------------------------------------------------------------------------------------------------------------------------")
     
@@ -43,6 +46,7 @@ if __name__ == '__main__':
     processing_pipeline.param_registration_use_simple_coarse = args.param_registration_use_simple_coarse != 0
     processing_pipeline.param_outlier_removal_use_per_point_cloud_checking = args.param_outlier_removal_use_per_point_cloud_checking != 0
     processing_pipeline.param_outlier_removal_use_visibility_confidence = args.param_outlier_removal_use_visibility_confidence != 0
+    processing_pipeline.param_completion_envelope_iterations = args.param_completion_envelope_iterations
     processing_pipeline.param_export_intermediate_results = args.param_export_intermediate_results != 0
     processing_pipeline.prepare()
 

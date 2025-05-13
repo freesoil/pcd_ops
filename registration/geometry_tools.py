@@ -2,6 +2,7 @@
 import numpy as np
 import copy
 import open3d as o3d
+import pymeshlab as ml
 from sklearn.neighbors import NearestNeighbors
 from tqdm import tqdm
 import logging
@@ -490,3 +491,190 @@ def compute_visibility_confidence(pcd):
     visible_mask = visible_counts >= min_views
 
     return visible_mask
+
+def mesh_conversion_o3d_to_ml(mesh:o3d.geometry.TriangleMesh):
+    """
+    conversion from open3d to pymeshlab
+    """
+    vertex_matrix = np.array(mesh.vertices, dtype=np.float64)
+    face_matrix = np.array(mesh.triangles, dtype=np.int32)
+    v_color_matrix = np.concatenate((np.array(mesh.vertex_colors, dtype=np.float64),np.full((len(mesh.vertex_colors),1),1.0,dtype=np.float64)), axis=1) 
+    mesh_ml = ml.Mesh(vertex_matrix=vertex_matrix, face_matrix=face_matrix, v_color_matrix=v_color_matrix)
+    return mesh_ml
+
+def mesh_conversion_ml_to_o3d(mesh_ml:ml.Mesh):
+    """
+    conversion from pymeshlab to open3d
+    """
+    vertex_matrix = mesh_ml.vertex_matrix()
+    face_matrix = mesh_ml.face_matrix()
+    v_color_matrix = mesh_ml.vertex_color_matrix()
+    out_mesh = o3d.geometry.TriangleMesh()
+    out_mesh.vertices = o3d.utility.Vector3dVector(vertex_matrix)
+    out_mesh.triangles = o3d.utility.Vector3iVector(face_matrix)
+    out_mesh.vertex_colors = o3d.utility.Vector3dVector(v_color_matrix[:,:3])
+    return out_mesh
+
+def pcd_conversion_o3d_to_ml(pcd:o3d.geometry.PointCloud):
+    """
+    conversion from open3d to pymeshlab
+    """
+    vertex_matrix = np.array(pcd.points, dtype=np.float64)
+    v_normals_matrix = np.array(pcd.normals, dtype=np.float64)
+    v_color_matrix = np.concatenate((np.array(pcd.colors, dtype=np.float64),np.full((len(pcd.colors),1),1.0,dtype=np.float64)), axis=1) 
+    mesh_ml = ml.Mesh(vertex_matrix=vertex_matrix, v_normals_matrix=v_normals_matrix, v_color_matrix=v_color_matrix)
+    return mesh_ml
+
+def pcd_conversion_ml_to_o3d(mesh_ml:ml.Mesh):
+    """
+    conversion from pymeshlab to open3d
+    """
+    vertex_matrix = mesh_ml.vertex_matrix()
+    v_normals_matrix = mesh_ml.v_normals_matrix()
+    v_color_matrix = mesh_ml.vertex_color_matrix()
+    out_pcd = o3d.geometry.PointCloud()
+    out_pcd.points = o3d.utility.Vector3dVector(vertex_matrix)
+    out_pcd.normals = o3d.utility.Vector3iVector(v_normals_matrix)
+    out_pcd.colors = o3d.utility.Vector3dVector(v_color_matrix[:,:3])
+    return out_pcd
+
+
+def isotropic_remeshing(mesh, edge_length, iterations=10, reprojectflag=True):
+    ms = ml.MeshSet()
+    mesh_ml = mesh_conversion_o3d_to_ml(mesh)
+    ms.add_mesh(mesh_ml, mesh_name="main", set_as_current=True)
+    ms.apply_filter('meshing_isotropic_explicit_remeshing',iterations=iterations,targetlen=ml.PureValue(edge_length), reprojectflag=reprojectflag)
+    # ms.set_current_mesh(1)
+    res_mesh_ml = ms.current_mesh()
+    out_mesh = mesh_conversion_ml_to_o3d(res_mesh_ml)
+    return out_mesh
+
+def screened_poisson_remeshing(mesh):
+    ms = ml.MeshSet()
+    mesh_ml = mesh_conversion_o3d_to_ml(mesh)
+    ms.add_mesh(mesh_ml, mesh_name="main", set_as_current=True)
+    ms.generate_surface_reconstruction_screened_poisson()
+    ms.set_current_mesh(1)
+    res_mesh_ml = ms.current_mesh()
+    out_mesh = mesh_conversion_ml_to_o3d(res_mesh_ml)
+    return out_mesh
+
+def expand_mesh(mesh, step_size):
+    out_mesh = copy.deepcopy(mesh)
+    if not out_mesh.has_vertex_normals():
+        out_mesh.compute_vertex_normals()
+    verts = np.asarray(out_mesh.vertices)
+    normals = np.asarray(out_mesh.vertex_normals)
+    new_verts = verts + normals*step_size
+    out_mesh.vertices = o3d.utility.Vector3dVector(new_verts)
+    out_mesh.compute_vertex_normals()
+    return out_mesh
+
+
+def envelope_computation(pcd, edge_length, n_iterations=20):
+
+    chull_mesh, _ = pcd.compute_convex_hull()
+    chull_mesh = isotropic_remeshing(chull_mesh, edge_length)
+    chull_mesh.compute_vertex_normals()
+    chull_mesh = expand_mesh(chull_mesh, edge_length*6.0)
+    chull_mesh = isotropic_remeshing(chull_mesh, edge_length)
+    chull_mesh.compute_vertex_normals()
+
+    envelope = copy.deepcopy(chull_mesh)
+
+    pcd_points = np.asarray(pcd.points)
+    pcd_normals = np.asarray(pcd.normals)
+    pcd_points_knn = NearestNeighbors(n_neighbors=1)
+    pcd_points_knn.fit(pcd_points)
+
+    step_size = edge_length*2.0
+    proj_min_distance = edge_length * 2.0
+
+    envelopes = [copy.deepcopy(envelope)]    
+
+    for i in tqdm(range(n_iterations), desc="Envelope computation for completion"):
+        
+        envelope_verts = np.asarray(envelope.vertices)
+        envelope_normals = np.asarray(envelope.vertex_normals)
+
+        distances, indices = pcd_points_knn.kneighbors(envelope_verts, return_distance=True)
+        indices = indices[:,0]
+        target_points = pcd_points[indices]
+        target_normals = pcd_normals[indices]
+        dot_products = np.einsum('ij,ij->i', envelope_normals, target_normals)
+        proj_mask = (dot_products > -0.5).astype(np.float32)
+        proj_mask = np.ones(len(envelope_verts))
+
+        proj_vecs = target_points-envelope_verts
+        proj_norms = np.linalg.norm(proj_vecs, axis=1, keepdims=True)
+        proj_norms[proj_norms == 0] = 1.0
+        normalized_proj_vecs = proj_vecs / proj_norms
+        proj_norms_1D = proj_norms.flatten()
+
+        raw_step_sizes = np.repeat(step_size, len(envelope_verts))
+        
+        optimized_step_sizes = np.minimum(raw_step_sizes, np.clip(proj_norms_1D-proj_min_distance,0.0,None))
+
+        new_positions = envelope_verts + normalized_proj_vecs * (optimized_step_sizes*proj_mask)[:, np.newaxis]
+        
+        envelope.vertices = o3d.utility.Vector3dVector(new_positions)
+        # smooth_envelope = envelope.filter_smooth_simple()
+        smooth_envelope = envelope.filter_smooth_taubin(number_of_iterations=20)
+        vertices_to_update = np.where(proj_norms>(step_size*3.0))
+        new_positions[vertices_to_update] = np.asarray(smooth_envelope.vertices)[vertices_to_update]
+        envelope.vertices = o3d.utility.Vector3dVector(new_positions)
+        envelope.compute_vertex_normals()
+        envelope = screened_poisson_remeshing(envelope)
+        envelope = isotropic_remeshing(envelope, edge_length, reprojectflag=True)
+        envelope.compute_vertex_normals()
+        envelopes.append(copy.deepcopy(envelope))
+    
+    n_expansion_steps = 10
+    envelope_verts = np.asarray(envelope.vertices)
+    distances, indices = pcd_points_knn.kneighbors(envelope_verts, return_distance=True)
+    distances = distances[:,0]
+    mask = distances > (step_size*2.0)
+    vertices_to_update = np.where(mask)
+    mask2 = distances > (step_size)
+    vertices_to_update2 = np.where(mask2)
+    expansion_steps = np.clip(distances,None,step_size*3.0)/n_expansion_steps
+    envelope_normals = np.asarray(envelope.vertex_normals)
+    for i in range(n_expansion_steps):
+        envelope_verts[vertices_to_update] = envelope_verts[vertices_to_update] + envelope_normals[vertices_to_update] * expansion_steps[:, np.newaxis][vertices_to_update]
+        envelope.vertices = o3d.utility.Vector3dVector(envelope_verts)
+        smooth_envelope = envelope.filter_smooth_simple(number_of_iterations=3)
+        envelope_verts[vertices_to_update2] = np.asarray(smooth_envelope.vertices)[vertices_to_update2]
+        envelope.vertices = o3d.utility.Vector3dVector(envelope_verts)
+        envelope.compute_vertex_normals()
+        
+
+    envelope_verts = np.asarray(envelope.vertices)
+    distances, indices = pcd_points_knn.kneighbors(envelope_verts, return_distance=True)
+    indices = indices[:,0]
+    pcd_colors = np.asarray(pcd.colors)
+    envelope.vertex_colors = o3d.utility.Vector3dVector(pcd_colors[indices])
+
+    distances = distances[:,0]
+    mask = distances > (step_size*1.5)
+    selected_ids = np.where(mask)
+    selected_points = np.array(np.asarray(envelope.vertices)[selected_ids])
+    selected_colors = np.array(np.asarray(envelope.vertex_colors)[selected_ids])
+    selected_normals = np.array(np.asarray(envelope.vertex_normals)[selected_ids])
+    
+    selected_pcd = o3d.geometry.PointCloud()
+    selected_pcd.points = o3d.utility.Vector3dVector(selected_points)
+    selected_pcd.colors = o3d.utility.Vector3dVector(selected_colors)
+    selected_pcd.normals = o3d.utility.Vector3dVector(selected_normals)
+
+    return selected_pcd, envelope, chull_mesh, envelopes
+
+
+def mesh_reconstruction(pcd):
+    ms = ml.MeshSet()
+    mesh_ml = pcd_conversion_o3d_to_ml(pcd)
+    ms.add_mesh(mesh_ml, mesh_name="main", set_as_current=True)
+    ms.generate_surface_reconstruction_screened_poisson()
+    ms.set_current_mesh(1)
+    res_mesh_ml = ms.current_mesh()
+    out_mesh = mesh_conversion_ml_to_o3d(res_mesh_ml)
+    return out_mesh

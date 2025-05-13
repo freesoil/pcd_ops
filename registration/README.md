@@ -33,13 +33,13 @@ pip install -r requirements.txt
 
 ## Running
 
-To run the full processing pipeline that at this moment consists of registration and outlier removal subpipelines, you can execute the process as follows:
+To run the full processing pipeline that consists of registration ,outlier removal, completion, and meshing subpipelines, you can execute the process as follows:
 
 ```bash
 python pcp_app.py data/input_data/hair_dryer_part_1
 ```
 
-This will run the full pipeline using as input the PLY files found in data/input_data/hair_dryer_part_1, and exporting the results to data/results/hair_dryer_part_1, where you will find subfolders containing the results of each subpipeline. For the registration, the combined (registered) point cloud and the isolated registered point clouds will be exported. Notice that just the point clouds that presented an acceptable registration will be considered. For the outlier removal, the results of each step of the algorithm will be exported under the following names: clean_1_overlap.ply, clean_2_visibility.ply, and result.ply.
+This will run the full pipeline using as input the PLY files found in data/input_data/hair_dryer_part_1, and exporting the results to data/results/hair_dryer_part_1, where you will find subfolders containing the results of each subpipeline. For the registration, the combined (registered) point cloud and the isolated registered point clouds will be exported. Notice that just the point clouds that presented an acceptable registration will be considered. For the outlier removal, the results of each step of the algorithm will be exported under the following names: clean_1_overlap.ply, clean_2_visibility.ply, and result.ply. For the completion method, the envelopes computed for each iterations (envelope_X.ply), the final envelope (envelpe.ply), and the selected points (selected_pcd.ply)  will be exported. For the meshing method, the combined point cloud (points.ply) and the meshing result (result.ply) will be exported. These results are grouped in folders with the corresponding subpipelines names, i.e. registration, outlier_removal, completion, and meshing.
 
 The proposed approach relies on certain assumptions about the input data: each point cloud should contain color information and be part of a sequential acquisition, ensuring substantial overlap with preceding scans. This sequence order is represented by the corresponding positions of an input list of point clouds (actually sorted by their filenames). 
 

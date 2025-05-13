@@ -62,6 +62,15 @@ class ProcessingData():
         self.outlier_removal_clean_2_visibility = None
         self.outlier_removal_result = None
 
+        self.completion_edge_length = None
+        self.completion_chull = None
+        self.completion_envelope = None
+        self.completion_selected_pcd = None
+
+        self.meshing_voxel_size_new_points = None
+        self.meshing_points = None
+        self.meshing_result = None
+
     def load_from_filenames(self, filenames):
         
         selected_filenames = []
@@ -97,6 +106,8 @@ class ProcessingPipeline():
         self.param_outlier_removal_use_visibility_confidence = True
         self.param_outlier_removal_use_per_point_cloud_checking = True
 
+        self.param_completion_envelope_iterations = 20
+
         self.param_export_intermediate_results = True
 
     def prepare(self):
@@ -115,6 +126,8 @@ class ProcessingPipeline():
         avg_distance = np.median([geomtools.compute_avg_distance(pcd) for pcd in preprocessed_pcds])
         processing_data.registration_voxel_size = avg_distance*2.0
         processing_data.outlier_removal_radius = avg_distance*2.5
+        processing_data.completion_edge_length = avg_distance*3.0
+        processing_data.meshing_voxel_size_new_points = avg_distance*5.0
 
         for i in tqdm(range(len(preprocessed_pcds)), desc="Preprocessing step 2"):
             pcd = preprocessed_pcds[i]
@@ -190,8 +203,37 @@ class ProcessingPipeline():
             o3d.io.write_point_cloud(os.path.join(results_folder,"result.ply"), processing_data.outlier_removal_result)
             
 
+    def completion_pipeline(self, processing_data:ProcessingData):
+        selected_pcd, envelope, chull, envelopes = geomtools.envelope_computation(processing_data.outlier_removal_result, processing_data.completion_edge_length)
+        processing_data.completion_chull = chull
+        processing_data.completion_envelope = envelope
+        processing_data.completion_selected_pcd = selected_pcd
+        
+        if self.param_export_intermediate_results:
+            results_folder = os.path.join(processing_data.output_folder_path,"completion")
+            safe_make_folder(results_folder)
+            o3d.io.write_point_cloud(os.path.join(results_folder,"selected_pcd.ply"), processing_data.completion_selected_pcd)
+            o3d.io.write_triangle_mesh(os.path.join(results_folder,"chull.ply"), processing_data.completion_chull)
+            o3d.io.write_triangle_mesh(os.path.join(results_folder,"envelope.ply"), processing_data.completion_envelope)
+            for i in range(len(envelopes)):
+                o3d.io.write_triangle_mesh(os.path.join(results_folder,"envelope_{}.ply".format(i)), envelopes[i])
+
+
+    def meshing_pipeline(self, processing_data:ProcessingData):
+        processing_data.meshing_points = processing_data.outlier_removal_result + processing_data.completion_selected_pcd.voxel_down_sample(processing_data.meshing_voxel_size_new_points)
+        processing_data.meshing_result = geomtools.mesh_reconstruction(processing_data.meshing_points)
+        if self.param_export_intermediate_results:
+            results_folder = os.path.join(processing_data.output_folder_path,"meshing")
+            safe_make_folder(results_folder)
+            o3d.io.write_point_cloud(os.path.join(results_folder,"points.ply"), processing_data.meshing_points)
+            o3d.io.write_triangle_mesh(os.path.join(results_folder,"result.ply"), processing_data.meshing_result)
+            
+
+
     def full_pipeline(self, processing_data:ProcessingData): # full pipeline execution
         clear_directory(processing_data.output_folder_path)
         self.preprocess_input_data(processing_data)
         self.registration_pipeline(processing_data)
         self.outlier_removal_pipeline(processing_data)
+        self.completion_pipeline(processing_data)
+        self.meshing_pipeline(processing_data)
