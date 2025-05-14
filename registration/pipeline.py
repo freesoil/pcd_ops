@@ -8,7 +8,6 @@ import copy
 from tqdm import tqdm
 
 import geometry_tools as geomtools
-import visualization_tools as vistools
 
 def safe_make_folder(folder_name):
     """
