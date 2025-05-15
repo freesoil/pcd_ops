@@ -8,6 +8,7 @@ import copy
 from tqdm import tqdm
 
 import geometry_tools as geomtools
+import visualization_tools as vistools
 
 def safe_make_folder(folder_name):
     """
@@ -49,6 +50,8 @@ class ProcessingData():
         self.input_filenames = None
         self.input_pcds = None
         self.preprocessed_pcds = None
+
+        self.avg_distance = None
 
         self.registration_pcds = None
         self.registration_combined = None
@@ -107,6 +110,7 @@ class ProcessingPipeline():
 
         self.param_completion_envelope_iterations = 20
 
+        self.param_is_outdoor_scene = False
         self.param_export_intermediate_results = True
 
     def prepare(self):
@@ -127,6 +131,7 @@ class ProcessingPipeline():
         processing_data.outlier_removal_radius = avg_distance*2.5
         processing_data.completion_edge_length = avg_distance*3.0
         processing_data.meshing_voxel_size_new_points = avg_distance*5.0
+        processing_data.avg_distance = avg_distance
 
         for i in tqdm(range(len(preprocessed_pcds)), desc="Preprocessing step 2"):
             pcd = preprocessed_pcds[i]
@@ -166,21 +171,27 @@ class ProcessingPipeline():
                     o3d.io.write_point_cloud(os.path.join(results_folder,os.path.basename(processing_data.input_filenames[i])), processing_data.registration_pcds[i])
 
     def outlier_removal_pipeline(self, processing_data:ProcessingData): # outlier removal pipeline
-
-        pcd_list = []
-        for i in range(len(processing_data.registration_pcds)):
-            if not (processing_data.registration_pcds[i] is None):
-                pcd_list.append(processing_data.registration_pcds[i])
-
-        overlap_confidence_mask, merged_pcd, labels = geomtools.compute_overlap_confidence(pcd_list,
-                                                                                           processing_data.outlier_removal_radius,
-                                                                                           use_per_point_cloud_checking=self.param_outlier_removal_use_per_point_cloud_checking)
         
-        clean_1_overlap = merged_pcd.select_by_index(np.where(overlap_confidence_mask)[0])
+        clean_1_overlap = processing_data.registration_combined
+        merged_pcd = processing_data.registration_combined
+
+        if (not self.param_is_outdoor_scene):
+            pcd_list = []
+            for i in range(len(processing_data.registration_pcds)):
+                if not (processing_data.registration_pcds[i] is None):
+                    pcd_list.append(processing_data.registration_pcds[i])
+
+            overlap_confidence_mask, merged_pcd, labels = geomtools.compute_overlap_confidence(pcd_list,
+                                                                                            processing_data.outlier_removal_radius,
+                                                                                            use_per_point_cloud_checking=self.param_outlier_removal_use_per_point_cloud_checking)
+            
+            geomtools.make_normals_point_outwards(merged_pcd)
+
+            clean_1_overlap = merged_pcd.select_by_index(np.where(overlap_confidence_mask)[0])
         
         clean_2_visibility = clean_1_overlap
 
-        if self.param_outlier_removal_use_visibility_confidence:
+        if self.param_outlier_removal_use_visibility_confidence and (not self.param_is_outdoor_scene):
             visibility_confidence_mask = geomtools.compute_visibility_confidence(clean_1_overlap)
             clean_2_visibility = clean_1_overlap.select_by_index(np.where(visibility_confidence_mask)[0])
 
@@ -203,6 +214,9 @@ class ProcessingPipeline():
             
 
     def completion_pipeline(self, processing_data:ProcessingData):
+        if (self.param_is_outdoor_scene):
+            return
+        
         selected_pcd, envelope, chull, envelopes = geomtools.envelope_computation(processing_data.outlier_removal_result, processing_data.completion_edge_length)
         processing_data.completion_chull = chull
         processing_data.completion_envelope = envelope
@@ -219,8 +233,15 @@ class ProcessingPipeline():
 
 
     def meshing_pipeline(self, processing_data:ProcessingData):
-        processing_data.meshing_points = processing_data.outlier_removal_result + processing_data.completion_selected_pcd.voxel_down_sample(processing_data.meshing_voxel_size_new_points)
-        processing_data.meshing_result = geomtools.mesh_reconstruction(processing_data.meshing_points)
+        if (self.param_is_outdoor_scene):
+            processing_data.meshing_points = processing_data.outlier_removal_result
+            d = processing_data.avg_distance
+            radii = [d*2.0,d*4.0,d*8.0,d*16.0]
+            processing_data.meshing_result = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(processing_data.meshing_points, 
+                                                                                                             o3d.utility.DoubleVector(radii))
+        else:
+            processing_data.meshing_points = processing_data.outlier_removal_result + processing_data.completion_selected_pcd.voxel_down_sample(processing_data.meshing_voxel_size_new_points)
+            processing_data.meshing_result = geomtools.mesh_reconstruction(processing_data.meshing_points)
         if self.param_export_intermediate_results:
             results_folder = os.path.join(processing_data.output_folder_path,"meshing")
             safe_make_folder(results_folder)

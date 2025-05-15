@@ -272,7 +272,7 @@ def registration_pairwise_coarse_to_fine_icp(source, target, max_correspondence_
                     estimation_method = o3d.pipelines.registration.TransformationEstimationForColoredICP(),
                     criteria = o3d.pipelines.registration.ICPConvergenceCriteria(relative_fitness=1e-6,
                                                                     relative_rmse=1e-6,
-                                                                    max_iteration=20))
+                                                                    max_iteration=50))
         except:
             logging.warning("Unable to apply color icp")
         if (icp_fine_color is None):
@@ -678,3 +678,45 @@ def mesh_reconstruction(pcd):
     res_mesh_ml = ms.current_mesh()
     out_mesh = mesh_conversion_ml_to_o3d(res_mesh_ml)
     return out_mesh
+
+
+def make_normals_point_outwards(pcd):
+    """
+    
+    """
+
+    # Compute geoemtric structures
+    points = np.asarray(pcd.points)
+    normals = np.asarray(pcd.normals)
+    centroid = np.mean(points, axis=0)
+    distances = np.linalg.norm(points - centroid, axis=1)
+    radius = np.max(distances)*1.5
+
+    points_knn = NearestNeighbors(n_neighbors=1)
+    points_knn.fit(points)
+
+    # Define external viewpoints
+    viewpoints = []
+    for theta in np.linspace(0, 2 * np.pi, 16):
+        for phi in np.linspace(0, np.pi, 8):
+            x = radius * np.sin(phi) * np.cos(theta)
+            y = radius * np.sin(phi) * np.sin(theta)
+            z = radius * np.cos(phi)
+            viewpoints.append(centroid + np.array([x, y, z]))
+
+    avg_coherence_ratio = 0
+
+    for vp in viewpoints:
+        
+        distances, indices = points_knn.kneighbors(np.array([vp]), return_distance=True)
+        indices = indices[0,:]
+        # facing checking
+        dot_products = np.einsum('ij,ij->i', points-vp, normals)
+        selected = dot_products[indices] <= 0
+        coherence_ratio = np.count_nonzero(selected)/(len(selected) + 0.000001)
+        avg_coherence_ratio += coherence_ratio
+
+    avg_coherence_ratio /= (len(viewpoints) + 0.000001)
+
+    if avg_coherence_ratio < 0.5:
+        pcd.normals = o3d.utility.Vector3dVector(-normals)
